@@ -1,82 +1,25 @@
-> [!IMPORTANT]
-> This driver is no longer maintained.
-> Please refer to the software packages referenced at the bottom of this page for up-to-date alternatives.
+# Broadcom BCM4331 wl driver for Linux kernel 6.x
 
-# Broadcom Linux hybrid wireless driver (64-bit)
+Broadcom's `wl` hybrid wireless driver patched to build on Linux kernel 6.x (tested on 6.17).
 
-Re-upload from the source code found on the [Broadcom Support and Downloads page][1]
+**Hardware:** MacBook Pro mid-2012, Broadcom BCM4331 802.11a/b/g/n
 
-**Patched for Linux >= 4.7**
+## Install
 
-Tested on a BCM4360-based 802.11ac Wireless Network Adapter (TP-LINK Archer T8E)
-
-[1]: https://www.broadcom.com/support/download-search?pg=Wireless+Embedded+Solutions+and+RF+Components&pf=Legacy+Wireless&pa=Driver&dk=BCM4312&l=true
-
-## Prerequisites
-
-The following kernel modules are incompatible with this driver and should not be loaded:
-* ssb
-* bcma
-* b43
-* brcmsmac
-
-Make sure to unload (`rmmod` command) and blacklist those modules in order to prevent them from being automatically
-reloaded during the next system startup:
-
-`/etc/modprobe.d/blacklist.conf`
-```
-# wireless drivers (conflict with Broadcom hybrid wireless driver 'wl')
-blacklist ssb
-blacklist bcma
-blacklist b43
-blacklist brcmsmac
+```bash
+git clone https://github.com/Trentyn/broadcom-wl-linux6.git
+cd broadcom-wl-linux6
+sudo bash install.sh
 ```
 
-## Compile and install
+The script installs all dependencies, builds via DKMS (auto-rebuilds on kernel updates), blacklists conflicting drivers, and loads the module.
 
-### Manually
+## What was patched for kernel 6.x
 
-Build and install for the running kernel:
-
-```sh
-$ make
-$ make install
-$ depmod -A
-$ modprobe wl
-```
-
-### Automatically
-
-Using [DKMS][2] and the included `dkms.conf` file, one can let the operating system rebuild and install the module
-automatically on every new kernel installation:
-
-```sh
-$ dkms add /path/to/this/repo
-$ dkms status
-broadcom-wl, 6.30.223.271: added
-```
-
-Providing that the `dkms` service is enabled, the module should appear as *installed* in the list of modules managed by
-DKMS after the system boots for the first time on the new kernel:
-
-```sh
-$ dkms status
-broadcom-wl, 6.30.223.271, 4.7.6-200.x86_64, x86_64: installed
-```
-
-[2]: http://linux.dell.com/dkms/manpage.html
-
-## See also
-
-* [Official README file][3] (download)
-* Arch Linux packages: [broadcom-wl][4] / [broadcom-wl-dkms][5]
-* Debian packages: [broadcom-sta][6] ([source repository][7])
-* [kmod-wl][8] package for RPM Fusion ([source repository][9])
-
-[3]: https://docs.broadcom.com/docs-and-downloads/docs/linux_sta/README_6.30.223.271.txt
-[4]: https://archlinux.org/packages/extra/x86_64/broadcom-wl/
-[5]: https://archlinux.org/packages/extra/x86_64/broadcom-wl-dkms/
-[6]: https://packages.debian.org/source/sid/broadcom-sta
-[7]: https://salsa.debian.org/broadcom-sta-team/broadcom-sta
-[8]: http://download1.rpmfusion.org/nonfree/fedora/development/rawhide/Everything/x86_64/os/repoview/kmod-wl.html
-[9]: https://pkgs.rpmfusion.org/cgit/nonfree/wl-kmod.git/
+| File | Change |
+|---|---|
+| `Makefile` | `EXTRA_CFLAGS` → `ccflags-y`, `EXTRA_LDFLAGS` → `ldflags-y` |
+| `src/include/linuxver.h` | Guard removed `net/lib80211.h` include (gone in 6.11+) |
+| `src/wl/sys/wl_linux.h` | Replace removed `lib80211`/`ieee80211_tkip` types with `void *` |
+| `src/wl/sys/wl_linux.c` | `asm/unaligned.h` → `linux/unaligned.h`, `from_timer` → `container_of`, `del_timer` → `timer_delete` |
+| `src/wl/sys/wl_cfg80211_hybrid.c` | Add `radio_idx`/`link_id` params to `set_wiphy_params`, `set_tx_power`, `get_tx_power` (cfg80211 API change in 6.11+) |

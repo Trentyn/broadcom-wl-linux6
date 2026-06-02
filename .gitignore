@@ -1,9 +1,12 @@
 **/*.o.cmd
 **/*.ko.cmd
+**/*.d
 
 built-in.o
 
 wl.ko
+wl.ko.zst
+wl.mod
 wl.mod.c
 wl.mod.o
 wl.o
@@ -13,6 +16,7 @@ src/wl/sys/wl_cfg80211_hybrid.o
 src/wl/sys/wl_iw.o
 src/wl/sys/wl_linux.o
 
+.cache.mk
 .tmp_versions/
 Module.symvers
 modules.order

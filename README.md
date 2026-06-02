@@ -12,7 +12,13 @@ cd broadcom-wl-linux6
 sudo bash install.sh
 ```
 
-The script installs all dependencies, builds via DKMS (auto-rebuilds on kernel updates), blacklists conflicting drivers, and loads the module.
+The script installs all dependencies, builds via DKMS (auto-rebuilds on kernel updates), blacklists conflicting drivers, loads the module, and runs `fix-powersave.sh` to disable WiFi power management (prevents disconnects after long uptime).
+
+To apply the power management fix independently on an already-installed system:
+
+```bash
+sudo bash fix-powersave.sh
+```
 
 ## What was patched for kernel 6.x
 

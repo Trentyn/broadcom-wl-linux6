@@ -6,7 +6,13 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-IFACE=$(ip link | grep -oP 'wlp\S+(?=:)' | head -1)
+echo "==> Checking for wireless-tools..."
+if ! command -v iwconfig &>/dev/null; then
+    apt-get install -y wireless-tools
+fi
+
+IWCONFIG=$(which iwconfig)
+IFACE=$(ip link | grep -oP '\bwl\w+' | head -1)
 
 if [[ -z "$IFACE" ]]; then
     echo "No wireless interface found."
@@ -14,7 +20,7 @@ if [[ -z "$IFACE" ]]; then
 fi
 
 echo "==> Disabling power management on $IFACE..."
-iwconfig "$IFACE" power off
+"$IWCONFIG" "$IFACE" power off
 
 echo "==> Writing NetworkManager config..."
 tee /etc/NetworkManager/conf.d/wifi-powersave-off.conf > /dev/null <<'CONF'
@@ -24,7 +30,7 @@ CONF
 
 echo "==> Writing udev rule for persistence..."
 tee /etc/udev/rules.d/81-wifi-powersave.rules > /dev/null <<EOF
-ACTION=="add", SUBSYSTEM=="net", KERNEL=="$IFACE", RUN+="/usr/sbin/iwconfig $IFACE power off"
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="$IFACE", RUN+="$IWCONFIG $IFACE power off"
 EOF
 
 echo "==> Reloading udev rules..."

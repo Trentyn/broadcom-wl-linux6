@@ -12,7 +12,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 echo "==> Installing build dependencies..."
-apt-get install -y build-essential linux-headers-$(uname -r) dkms
+apt-get install -y build-essential linux-headers-$(uname -r) dkms wireless-tools
 
 echo "==> Removing conflicting Broadcom packages..."
 apt-get remove -y bcmwl-kernel-source broadcom-sta-dkms 2>/dev/null || true
@@ -49,7 +49,10 @@ echo "==> Making wl load on boot..."
 grep -q "^wl$" /etc/modules 2>/dev/null || echo 'wl' >> /etc/modules
 update-initramfs -u
 
-IFACE=$(ip link | grep -oP 'wlp\S+(?=:)')
+echo "==> Applying power management fix..."
+bash "$SCRIPT_DIR/fix-powersave.sh"
+
+IFACE=$(ip link | grep -oP '\bwl\w+' | head -1)
 echo ""
-echo "Done! WiFi interface: ${IFACE:-wlp?s? (check: ip link)}"
+echo "Done! WiFi interface: ${IFACE:-(check: ip link)}"
 echo "Connect: nmcli device wifi connect \"SSID\" password \"PASSWORD\""

@@ -20,7 +20,7 @@ if [[ -z "$IFACE" ]]; then
 fi
 
 echo "==> Disabling power management on $IFACE..."
-"$IWCONFIG" "$IFACE" power off
+"$IWCONFIG" "$IFACE" power off || true
 
 echo "==> Writing NetworkManager config..."
 tee /etc/NetworkManager/conf.d/wifi-powersave-off.conf > /dev/null <<'CONF'

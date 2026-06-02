@@ -50,7 +50,7 @@ grep -q "^wl$" /etc/modules 2>/dev/null || echo 'wl' >> /etc/modules
 update-initramfs -u
 
 echo "==> Applying power management fix..."
-bash "$SCRIPT_DIR/fix-powersave.sh"
+bash "$SCRIPT_DIR/fix-powersave.sh" || echo "Warning: power management fix failed, run fix-powersave.sh manually after reboot"
 
 IFACE=$(ip link | grep -oP '\bwl\w+' | head -1)
 echo ""

@@ -1,7 +1,11 @@
 **/*.o.cmd
 **/*.ko.cmd
+**/*.mod.cmd
+**/*.symvers.cmd
+**/*.order.cmd
 **/*.d
 
+.module-common.o
 built-in.o
 
 wl.ko

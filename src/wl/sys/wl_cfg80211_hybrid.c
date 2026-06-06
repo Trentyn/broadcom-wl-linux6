@@ -415,7 +415,7 @@ static struct ieee80211_supported_band __wl_band_2ghz = {
 	.n_bitrates = wl_g_rates_size,
 };
 
-static struct ieee80211_supported_band __wl_band_5ghz_a = {
+static __maybe_unused struct ieee80211_supported_band __wl_band_5ghz_a = {
 	.band = IEEE80211_BAND_5GHZ,
 	.channels = __wl_5ghz_a_channels,
 	.n_channels = ARRAY_SIZE(__wl_5ghz_a_channels),
@@ -423,7 +423,7 @@ static struct ieee80211_supported_band __wl_band_5ghz_a = {
 	.n_bitrates = wl_a_rates_size,
 };
 
-static struct ieee80211_supported_band __wl_band_5ghz_n = {
+static __maybe_unused struct ieee80211_supported_band __wl_band_5ghz_n = {
 	.band = IEEE80211_BAND_5GHZ,
 	.channels = __wl_5ghz_n_channels,
 	.n_channels = ARRAY_SIZE(__wl_5ghz_n_channels),
@@ -2987,7 +2987,6 @@ static void wl_update_wowl(struct net_device *ndev)
 
 static s32 wl_update_wiphybands(struct wl_cfg80211_priv *wl)
 {
-	struct wiphy *wiphy;
 	s32 phy_list;
 	s8 phy;
 	s32 err = 0;
@@ -3001,10 +3000,8 @@ static s32 wl_update_wiphybands(struct wl_cfg80211_priv *wl)
 	phy = ((char *)&phy_list)[0];
 	WL_DBG(("%c phy\n", phy));
 
-	if (phy == 'n' || phy == 'a' || phy == 'v') {
-		wiphy = wl_to_wiphy(wl);
-		wiphy->bands[IEEE80211_BAND_5GHZ] = &__wl_band_5ghz_n;
-	}
+	/* 5GHz disabled: BCM4331 wl driver fails to associate when dual-band
+	 * SSID is visible; forcing 2.4GHz-only avoids the scan/disconnect loop. */
 
 	return err;
 }
@@ -3016,6 +3013,7 @@ s32 wl_cfg80211_up(struct net_device *ndev)
 	struct wireless_dev *wdev = ndev->ieee80211_ptr;
 
 	wl_set_mode(ndev, wdev->iftype);
+	wl_dev_intvar_set(ndev, "band", 2);	/* force 2.4GHz only */
 	err = wl_update_wiphybands(wl);
 	if (err) {
 		return err;

@@ -1,40 +1,125 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 if [[ $EUID -ne 0 ]]; then
     echo "Run as root: sudo bash fix-powersave.sh"
     exit 1
 fi
 
+detect_wifi_iface() {
+    if command -v nmcli &>/dev/null; then
+        nmcli -t -f DEVICE,TYPE device status 2>/dev/null \
+            | awk -F: '$2 == "wifi" { print $1; exit }'
+        return 0
+    fi
+
+    ip -o link show 2>/dev/null \
+        | awk -F': ' '$2 ~ /^(wl|wlan)/ { print $2; exit }'
+}
+
 echo "==> Checking for wireless-tools..."
 if ! command -v iwconfig &>/dev/null; then
     apt-get install -y wireless-tools
 fi
 
-IWCONFIG=$(which iwconfig)
-IFACE=$(ip link | grep -oP '\bwl\w+' | head -1)
+IWCONFIG=$(command -v iwconfig)
+IFACE=$(detect_wifi_iface)
 
 if [[ -z "$IFACE" ]]; then
-    echo "No wireless interface found."
-    exit 1
+    echo "No wireless interface found yet. Continuing with persistent fixes."
+else
+    echo "==> Disabling power management on $IFACE..."
+    "$IWCONFIG" "$IFACE" power off || true
 fi
 
-echo "==> Disabling power management on $IFACE..."
-"$IWCONFIG" "$IFACE" power off || true
-
 echo "==> Writing NetworkManager config..."
+mkdir -p /etc/NetworkManager/conf.d
+tee /etc/NetworkManager/conf.d/99-wifi-powersave-off.conf > /dev/null <<'CONF'
+[connection]
+wifi.powersave = 2
+CONF
+
 tee /etc/NetworkManager/conf.d/wifi-powersave-off.conf > /dev/null <<'CONF'
 [connection]
 wifi.powersave = 2
 CONF
 
 echo "==> Writing udev rule for persistence..."
+mkdir -p /etc/udev/rules.d
 tee /etc/udev/rules.d/81-wifi-powersave.rules > /dev/null <<EOF
-ACTION=="add", SUBSYSTEM=="net", KERNEL=="$IFACE", RUN+="$IWCONFIG $IFACE power off"
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wl*", RUN+="$IWCONFIG %k power off"
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan*", RUN+="$IWCONFIG %k power off"
 EOF
+
+echo "==> Installing Broadcom wl resume recovery hook..."
+mkdir -p /lib/systemd/system-sleep
+tee /lib/systemd/system-sleep/99-broadcom-wl-resume > /dev/null <<'EOF'
+#!/bin/sh
+set -u
+
+# Broadcom wl can stop scanning after suspend/resume on older Apple laptops.
+# Reloading wl restores Wi-Fi without rebooting the machine.
+case "$1/$2" in
+  post/*)
+    PATH=/usr/sbin:/usr/bin:/sbin:/bin
+    nmcli radio wifi off >/dev/null 2>&1 || true
+    systemctl stop NetworkManager.service >/dev/null 2>&1 || true
+    modprobe -r wl >/dev/null 2>&1 || true
+    sleep 2
+    modprobe wl >/dev/null 2>&1 || true
+    systemctl start NetworkManager.service >/dev/null 2>&1 || true
+    sleep 5
+    nmcli radio wifi on >/dev/null 2>&1 || true
+    ;;
+esac
+EOF
+chmod 755 /lib/systemd/system-sleep/99-broadcom-wl-resume
+
+echo "==> Installing manual Wi-Fi recovery command..."
+mkdir -p /usr/local/sbin
+tee /usr/local/sbin/fix-broadcom-wifi > /dev/null <<'EOF'
+#!/bin/sh
+set -u
+
+# Usage:
+#   sudo fix-broadcom-wifi
+#   sudo fix-broadcom-wifi "Connection name"
+#
+# With no connection name, NetworkManager will autoconnect to the saved Wi-Fi
+# profile it normally prefers.
+CONNECTION="${1:-}"
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+systemctl stop NetworkManager.service
+modprobe -r wl >/dev/null 2>&1 || true
+sleep 2
+modprobe wl
+systemctl start NetworkManager.service
+sleep 5
+nmcli radio wifi on >/dev/null 2>&1 || true
+
+if [ -n "$CONNECTION" ]; then
+    nmcli connection up "$CONNECTION" || true
+fi
+
+nmcli device status
+EOF
+chmod 755 /usr/local/sbin/fix-broadcom-wifi
+
+echo "==> Fixing netplan file permissions if present..."
+if [[ -f /etc/netplan/01-network-manager-all.yaml ]]; then
+    chmod 600 /etc/netplan/01-network-manager-all.yaml || true
+fi
 
 echo "==> Reloading udev rules..."
 udevadm control --reload-rules
+udevadm trigger --subsystem-match=net || true
+
+echo "==> Reloading NetworkManager..."
+if systemctl is-active --quiet NetworkManager.service; then
+    systemctl restart NetworkManager.service || true
+fi
 
 echo ""
-echo "Done! Power management disabled on $IFACE. Will persist across reboots."
+echo "Done! Broadcom wl power saving and resume recovery are installed."
+echo "If Wi-Fi gets stuck again, run: sudo fix-broadcom-wifi"

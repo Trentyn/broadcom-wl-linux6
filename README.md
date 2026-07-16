@@ -22,6 +22,14 @@ The installer is intentionally conservative:
 
 This matters on systems where a broken DKMS tree has already left `dpkg` or a kernel upgrade half-configured: the custom source is synced first, and future DKMS rebuilds use the same source and flags.
 
+## Support policy
+
+This repository is aimed at current Ubuntu 24.04 HWE kernels, not indefinite legacy support.
+
+- The main target is the running kernel plus the next kernel you are upgrading into.
+- The installer still rebuilds for every installed kernel with headers because that makes broken upgrades recoverable and keeps rollback kernels bootable.
+- That does not mean every old kernel branch is a long-term support target for this repository. Old kernels can be removed normally once the machine has booted and stabilized on the newer HWE line.
+
 To apply the power management fix independently on an already-installed system:
 
 ```bash

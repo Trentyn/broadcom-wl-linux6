@@ -151,6 +151,7 @@ static void wl_dpc(ulong data);
 static void wl_tx_tasklet(ulong data);
 static void wl_link_up(wl_info_t *wl, char * ifname);
 static void wl_link_down(wl_info_t *wl, char *ifname);
+static void wl_flush_pending_work(wl_info_t *wl);
 static int wl_schedule_task(wl_info_t *wl, void (*fn)(struct wl_task *), void *context);
 #if defined(BCMDBG)
 static int wl_dump(wl_info_t *wl, struct bcmstrbuf *b);
@@ -708,8 +709,9 @@ wl_attach(uint16 vendor, uint16 device, ulong regs,
 #endif
 
 #if defined(WL_CONFIG_RFKILL)
-	if (wl_init_rfkill(wl) < 0)
+	if (wl_init_rfkill(wl) < 0) {
 		WL_ERROR(("%s: init_rfkill_failure\n", __FUNCTION__));
+	}
 #endif
 
 	if (wlc_iovar_setint(wl->wlc, "leddc", 0xa0000)) {
@@ -1104,8 +1106,9 @@ wl_open(struct net_device *dev)
 	}
 	WL_UNLOCK(wl);
 
-	if (!error)
+	if (!error) {
 		OLD_MOD_INC_USE_COUNT;
+	}
 
 #if defined(USE_CFG80211)
 	if (wl_cfg80211_up(dev)) {
@@ -1495,7 +1498,7 @@ wl_down(wl_info_t *wl)
 		int i = 0;
 		for (i = 0; (atomic_read(&wl->callbacks) > callbacks) && i < 10000; i++) {
 			schedule();
-			flush_scheduled_work();
+			wl_flush_pending_work(wl);
 		}
 	}
 	else
@@ -1505,6 +1508,17 @@ wl_down(wl_info_t *wl)
 	}
 
 	WL_LOCK(wl);
+}
+
+static void
+wl_flush_pending_work(wl_info_t *wl)
+{
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2, 5, 41)
+	BCM_REFERENCE(wl);
+	schedule_timeout_uninterruptible(1);
+#else
+	flush_scheduled_tasks();
+#endif
 }
 
 static int
@@ -1874,9 +1888,10 @@ wl_set_mac_address(struct net_device *dev, void *addr)
 	err = wlc_iovar_op(wl->wlc, "cur_etheraddr", NULL, 0, sa->sa_data, ETHER_ADDR_LEN,
 		IOV_SET, (WL_DEV_IF(dev))->wlcif);
 	WL_UNLOCK(wl);
-	if (err)
+	if (err) {
 		WL_ERROR(("wl%d: wl_set_mac_address: error setting MAC addr override\n",
 			wl->pub->unit));
+	}
 	return err;
 }
 
@@ -2189,8 +2204,9 @@ wl_event(wl_info_t *wl, char *ifname, wlc_event_t *e)
 #if defined(WL_CONFIG_RFKILL)
 	case WLC_E_RADIO: {
 		mbool i;
-		if (wlc_get(wl->wlc, WLC_GET_RADIO, &i) < 0)
+		if (wlc_get(wl->wlc, WLC_GET_RADIO, &i) < 0) {
 			WL_ERROR(("%s: WLC_GET_RADIO failed\n", __FUNCTION__));
+		}
 		if (wl->last_phyind == (mbool)(i & WL_RADIO_HW_DISABLE))
 			break;
 
@@ -2263,9 +2279,10 @@ wl_start(struct sk_buff *skb, struct net_device *dev)
 			if (!err) {
 				atomic_inc(&wl->callbacks);
 				wl->txq_dispatched = TRUE;
-			} else
+			} else {
 				WL_ERROR(("wl%d: wl_start/schedule_work failed\n",
 				          wl->pub->unit));
+			}
 		}
 
 		TXQ_UNLOCK(wl);

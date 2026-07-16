@@ -1,11 +1,12 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 DRIVER_NAME=broadcom-wl
 DRIVER_VERSION=6.30.223.271
 DKMS_SRC=/usr/src/${DRIVER_NAME}-${DRIVER_VERSION}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIRED_PACKAGES=(build-essential dkms wireless-tools)
+KERNEL_SCOPE="${KERNEL_SCOPE:-all}"
 
 if [[ $EUID -ne 0 ]]; then
     echo "Run as root: sudo bash install.sh"
@@ -42,15 +43,45 @@ install_missing_dependencies() {
     apt-get install -y "${missing[@]}"
 }
 
-rebuild_for_installed_kernels() {
+detect_wifi_iface() {
+    if command -v nmcli &>/dev/null; then
+        nmcli -t -f DEVICE,TYPE device status 2>/dev/null \
+            | awk -F: '$2 == "wifi" { print $1; exit }'
+        return 0
+    fi
+
+    ip -o link show 2>/dev/null \
+        | awk -F': ' '$2 ~ /^(wl|wlan|wlp)/ { print $2; exit }'
+}
+
+selected_kernels() {
+    case "$KERNEL_SCOPE" in
+        running)
+            printf '%s\n' "$(uname -r)"
+            ;;
+        all)
+            local kdir
+            shopt -s nullglob
+            for kdir in /lib/modules/*; do
+                printf '%s\n' "${kdir##*/}"
+            done
+            shopt -u nullglob
+            ;;
+        *)
+            echo "Unsupported KERNEL_SCOPE=$KERNEL_SCOPE. Use 'all' or 'running'."
+            exit 1
+            ;;
+    esac
+}
+
+rebuild_for_selected_kernels() {
     local kver
     local built_any=0
 
-    shopt -s nullglob
-    for kdir in /lib/modules/*; do
-        kver="${kdir##*/}"
+    while IFS= read -r kver; do
+        [[ -n "$kver" ]] || continue
 
-        if [[ ! -d "$kdir/build" ]]; then
+        if [[ ! -d "/lib/modules/${kver}/build" ]]; then
             echo "==> Skipping ${kver}: kernel headers are not installed."
             continue
         fi
@@ -59,13 +90,45 @@ rebuild_for_installed_kernels() {
         dkms build -m "${DRIVER_NAME}" -v "${DRIVER_VERSION}" -k "${kver}"
         dkms install -m "${DRIVER_NAME}" -v "${DRIVER_VERSION}" -k "${kver}" --force
         built_any=1
-    done
-    shopt -u nullglob
+    done < <(selected_kernels)
 
     if ((built_any == 0)); then
-        echo "No installed kernels with headers were found under /lib/modules."
+        echo "No selected kernels with headers were found under /lib/modules."
         exit 1
     fi
+}
+
+run_smoke_checks() {
+    local iface
+    local attempt
+
+    echo "==> Running smoke checks..."
+
+    if ! modinfo wl >/dev/null 2>&1; then
+        echo "Smoke check failed: wl is not installed for the running kernel."
+        exit 1
+    fi
+
+    modprobe wl
+
+    for attempt in $(seq 1 10); do
+        if lsmod | grep -q '^wl\b'; then
+            iface="$(detect_wifi_iface || true)"
+            if [[ -n "$iface" ]]; then
+                echo "==> Smoke checks passed on interface ${iface}."
+                return
+            fi
+        fi
+
+        sleep 1
+    done
+
+    echo "Smoke check failed: wl or its network interface did not become ready."
+    echo "Loaded modules matching wl:"
+    lsmod | grep '^wl\b' || true
+    echo "Detected network interfaces:"
+    find /sys/class/net -mindepth 1 -maxdepth 1 -printf ' - %f\n' || true
+    exit 1
 }
 
 install_missing_dependencies
@@ -74,7 +137,7 @@ echo "==> Removing conflicting Broadcom packages..."
 apt-get remove -y bcmwl-kernel-source broadcom-sta-dkms 2>/dev/null || true
 
 echo "==> Removing old DKMS entry (if any)..."
-dkms remove ${DRIVER_NAME}/${DRIVER_VERSION} --all 2>/dev/null || true
+dkms remove "${DRIVER_NAME}/${DRIVER_VERSION}" --all 2>/dev/null || true
 
 echo "==> Copying source to DKMS tree..."
 rm -rf "$DKMS_SRC"
@@ -83,7 +146,7 @@ cp -r "$SCRIPT_DIR" "$DKMS_SRC"
 echo "==> Registering source with DKMS..."
 dkms add -m "${DRIVER_NAME}" -v "${DRIVER_VERSION}"
 
-rebuild_for_installed_kernels
+rebuild_for_selected_kernels
 
 echo "==> Blacklisting conflicting drivers..."
 tee /etc/modprobe.d/broadcom-wl.conf > /dev/null <<'CONF'
@@ -108,7 +171,9 @@ update-initramfs -u
 echo "==> Applying power management fix..."
 bash "$SCRIPT_DIR/fix-powersave.sh" || echo "Warning: power management fix failed, run fix-powersave.sh manually after reboot"
 
-IFACE=$(ip link | grep -oP '\bwl\w+' | head -1)
+run_smoke_checks
+
+IFACE="$(detect_wifi_iface || true)"
 echo ""
 echo "Done! WiFi interface: ${IFACE:-(check: ip link)}"
 echo "Connect: nmcli device wifi connect \"SSID\" password \"PASSWORD\""

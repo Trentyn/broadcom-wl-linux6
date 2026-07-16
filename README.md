@@ -19,6 +19,7 @@ The installer is intentionally conservative:
 - it only calls `apt-get install` when required build dependencies are actually missing
 - it refreshes `/usr/src/broadcom-wl-6.30.223.271` from the checked-out tree before registering DKMS
 - it builds/installs the module for every installed kernel that already has headers under `/lib/modules/*/build`
+- it runs a post-install smoke check to make sure `wl` is installed, loadable, and exposes a wireless interface
 
 This matters on systems where a broken DKMS tree has already left `dpkg` or a kernel upgrade half-configured: the custom source is synced first, and future DKMS rebuilds use the same source and flags.
 
@@ -29,6 +30,12 @@ This repository is aimed at current Ubuntu 24.04 HWE kernels, not indefinite leg
 - The main target is the running kernel plus the next kernel you are upgrading into.
 - The installer still rebuilds for every installed kernel with headers because that makes broken upgrades recoverable and keeps rollback kernels bootable.
 - That does not mean every old kernel branch is a long-term support target for this repository. Old kernels can be removed normally once the machine has booted and stabilized on the newer HWE line.
+
+If you want a minimal install onto the currently running kernel only, use:
+
+```bash
+sudo KERNEL_SCOPE=running bash install.sh
+```
 
 To apply the power management fix independently on an already-installed system:
 
@@ -56,3 +63,17 @@ wl.o: error: objtool: aes_cbc_encrypt_pad+0x4c: unannotated intra-function call
 ```
 
 That warning comes from the shipped binary object rather than the open wrapper code. Since the blob cannot be rebuilt, this tree suppresses the `objtool` invocation for the external module link step by passing `cmd_objtool=` through both the local `Makefile` and `dkms.conf`.
+
+## Verification
+
+For repeatable local validation, run:
+
+```bash
+./verify.sh
+```
+
+That script rebuilds the module against every installed kernel with headers and verifies that the currently running kernel can see a loaded `wl` module and a wireless interface. To limit the build check to the active kernel only:
+
+```bash
+KERNEL_SCOPE=running ./verify.sh
+```

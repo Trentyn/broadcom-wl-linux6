@@ -24,6 +24,7 @@ ifneq ($(KERNELRELEASE),)
   PATCHLEVEL := $(shell echo $(KERNELRELEASE) | sed -e 's/\([0-9]*\)[.]\([0-9]*\)\(.*\)/\2/')
   SUBLEVEL := $(shell echo $(KERNELRELEASE) | sed -e 's/\([0-9]*\)[.]\([0-9]*\)[.]\([0-9]*\)\(.*\)/\3/; s/\([0-9]*\)[.]\([0-9]*\)\(.*\)/0/')
 
+  ifneq ($(CONFIG_NET),)
   LINUXVER_GOODFOR_CFG80211:=$(strip $(shell \
     if [ "$(VERSION).$(PATCHLEVEL)" = "2.6" -a "$(SUBLEVEL)" -ge "32" ] || [ "$(VERSION)" -eq "2" -a "$(PATCHLEVEL)" -ge "7" ] || [ "$(VERSION)" -ge "3" ]; then \
       echo TRUE; \
@@ -101,6 +102,7 @@ ifneq ($(KERNELRELEASE),)
         $(warning Neither CFG80211 nor Wireless Extension is enabled in kernel)
       endif
     endif
+  endif
   endif
 
 endif

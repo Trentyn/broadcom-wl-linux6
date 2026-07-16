@@ -5,14 +5,70 @@ DRIVER_NAME=broadcom-wl
 DRIVER_VERSION=6.30.223.271
 DKMS_SRC=/usr/src/${DRIVER_NAME}-${DRIVER_VERSION}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REQUIRED_PACKAGES=(build-essential dkms wireless-tools)
 
 if [[ $EUID -ne 0 ]]; then
     echo "Run as root: sudo bash install.sh"
     exit 1
 fi
 
-echo "==> Installing build dependencies..."
-apt-get install -y build-essential linux-headers-$(uname -r) dkms wireless-tools
+package_installed() {
+    dpkg-query -W -f='${Status}\n' "$1" 2>/dev/null | grep -q "install ok installed"
+}
+
+install_missing_dependencies() {
+    local missing=()
+    local running_headers="linux-headers-$(uname -r)"
+    local pkg
+
+    for pkg in "${REQUIRED_PACKAGES[@]}"; do
+        if ! package_installed "$pkg"; then
+            missing+=("$pkg")
+        fi
+    done
+
+    if [[ -d "/lib/modules/$(uname -r)/build" ]]; then
+        :
+    elif ! package_installed "$running_headers"; then
+        missing+=("$running_headers")
+    fi
+
+    if ((${#missing[@]} == 0)); then
+        echo "==> Build dependencies already installed."
+        return
+    fi
+
+    echo "==> Installing missing build dependencies: ${missing[*]}"
+    apt-get install -y "${missing[@]}"
+}
+
+rebuild_for_installed_kernels() {
+    local kver
+    local built_any=0
+
+    shopt -s nullglob
+    for kdir in /lib/modules/*; do
+        kver="${kdir##*/}"
+
+        if [[ ! -d "$kdir/build" ]]; then
+            echo "==> Skipping ${kver}: kernel headers are not installed."
+            continue
+        fi
+
+        echo "==> Building and installing via DKMS for ${kver}..."
+        dkms build -m "${DRIVER_NAME}" -v "${DRIVER_VERSION}" -k "${kver}"
+        dkms install -m "${DRIVER_NAME}" -v "${DRIVER_VERSION}" -k "${kver}" --force
+        built_any=1
+    done
+    shopt -u nullglob
+
+    if ((built_any == 0)); then
+        echo "No installed kernels with headers were found under /lib/modules."
+        exit 1
+    fi
+}
+
+install_missing_dependencies
 
 echo "==> Removing conflicting Broadcom packages..."
 apt-get remove -y bcmwl-kernel-source broadcom-sta-dkms 2>/dev/null || true
@@ -24,10 +80,10 @@ echo "==> Copying source to DKMS tree..."
 rm -rf "$DKMS_SRC"
 cp -r "$SCRIPT_DIR" "$DKMS_SRC"
 
-echo "==> Building and installing via DKMS..."
-dkms add     -m ${DRIVER_NAME} -v ${DRIVER_VERSION}
-dkms build   -m ${DRIVER_NAME} -v ${DRIVER_VERSION}
-dkms install -m ${DRIVER_NAME} -v ${DRIVER_VERSION}
+echo "==> Registering source with DKMS..."
+dkms add -m "${DRIVER_NAME}" -v "${DRIVER_VERSION}"
+
+rebuild_for_installed_kernels
 
 echo "==> Blacklisting conflicting drivers..."
 tee /etc/modprobe.d/broadcom-wl.conf > /dev/null <<'CONF'

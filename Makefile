@@ -20,8 +20,12 @@
 
 ifneq ($(KERNELRELEASE),)
 
+  VERSION := $(shell echo $(KERNELRELEASE) | sed -e 's/\([0-9]*\)[.]\([0-9]*\)\(.*\)/\1/')
+  PATCHLEVEL := $(shell echo $(KERNELRELEASE) | sed -e 's/\([0-9]*\)[.]\([0-9]*\)\(.*\)/\2/')
+  SUBLEVEL := $(shell echo $(KERNELRELEASE) | sed -e 's/\([0-9]*\)[.]\([0-9]*\)[.]\([0-9]*\)\(.*\)/\3/; s/\([0-9]*\)[.]\([0-9]*\)\(.*\)/0/')
+
   LINUXVER_GOODFOR_CFG80211:=$(strip $(shell \
-    if [ "$(VERSION)" -ge "2" -a "$(PATCHLEVEL)" -ge "6" -a "$(SUBLEVEL)" -ge "32" -o "$(VERSION)" -ge "3" ]; then \
+    if [ "$(VERSION).$(PATCHLEVEL)" = "2.6" -a "$(SUBLEVEL)" -ge "32" ] || [ "$(VERSION)" -eq "2" -a "$(PATCHLEVEL)" -ge "7" ] || [ "$(VERSION)" -ge "3" ]; then \
       echo TRUE; \
     else \
       echo FALSE; \
@@ -29,7 +33,7 @@ ifneq ($(KERNELRELEASE),)
   ))
 
     LINUXVER_WEXT_ONLY:=$(strip $(shell \
-    if [ "$(VERSION)" -ge "2" -a "$(PATCHLEVEL)" -ge "6" -a "$(SUBLEVEL)" -ge "17" ]; then \
+    if [ "$(VERSION).$(PATCHLEVEL)" = "2.6" -a "$(SUBLEVEL)" -ge "17" ] || [ "$(VERSION)" -eq "2" -a "$(PATCHLEVEL)" -ge "7" ] || [ "$(VERSION)" -ge "3" ]; then \
       echo FALSE; \
     else \
       echo TRUE; \
@@ -156,13 +160,13 @@ CROSS_TOOLS        = /path/to/tools
 CROSS_KBUILD_DIR   = /path/to/kernel/tree
 
 all:
-	KBUILD_NOPEDANTIC=1 make -C $(KBUILD_DIR) M=`pwd`
+	KBUILD_NOPEDANTIC=1 make cmd_objtool= -C $(KBUILD_DIR) M=`pwd`
 
 cross:
-	KBUILD_NOPEDANTIC=1 make CROSS_COMPILE=${CROSS_TOOLS} -C $(CROSS_KBUILD_DIR) M=`pwd`
+	KBUILD_NOPEDANTIC=1 make cmd_objtool= CROSS_COMPILE=${CROSS_TOOLS} -C $(CROSS_KBUILD_DIR) M=`pwd`
 
 clean:
-	KBUILD_NOPEDANTIC=1 make -C $(KBUILD_DIR) M=`pwd` clean
+	KBUILD_NOPEDANTIC=1 make cmd_objtool= -C $(KBUILD_DIR) M=`pwd` clean
 
 install:
 	install -D -m 755 wl.ko $(MDEST_DIR)

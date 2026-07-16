@@ -168,6 +168,7 @@ static void wl_report_radio_state(wl_info_t *wl);
 #endif
 
 MODULE_LICENSE("MIXED/Proprietary");
+MODULE_DESCRIPTION("Broadcom STA Wireless driver");
 
 static struct pci_device_id wl_id_table[] =
 {

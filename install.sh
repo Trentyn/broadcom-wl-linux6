@@ -44,14 +44,26 @@ install_missing_dependencies() {
 }
 
 detect_wifi_iface() {
+    local iface=""
+
     if command -v nmcli &>/dev/null; then
-        nmcli -t -f DEVICE,TYPE device status 2>/dev/null \
-            | awk -F: '$2 == "wifi" { print $1; exit }'
+        iface="$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null \
+            | awk -F: '$2 == "wifi" { print $1; exit }' || true)"
+        if [[ -n "$iface" ]]; then
+            printf '%s\n' "$iface"
+            return 0
+        fi
+    fi
+
+    iface="$(ip -o link show 2>/dev/null \
+        | awk -F': ' '$2 ~ /^(wl|wlan|wlp)/ { print $2; exit }' || true)"
+    if [[ -n "$iface" ]]; then
+        printf '%s\n' "$iface"
         return 0
     fi
 
-    ip -o link show 2>/dev/null \
-        | awk -F': ' '$2 ~ /^(wl|wlan|wlp)/ { print $2; exit }'
+    find /sys/class/net -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null \
+        | awk '/^(wl|wlan|wlp)/ { print; exit }'
 }
 
 selected_kernels() {
@@ -111,17 +123,21 @@ run_smoke_checks() {
 
     modprobe wl
 
-    for attempt in $(seq 1 10); do
-        if lsmod | grep -q '^wl\b'; then
-            iface="$(detect_wifi_iface || true)"
-            if [[ -n "$iface" ]]; then
-                echo "==> Smoke checks passed on interface ${iface}."
-                return
-            fi
+    for attempt in $(seq 1 20); do
+        iface="$(detect_wifi_iface || true)"
+        if lsmod | grep -q '^wl\b' && [[ -n "$iface" ]]; then
+            echo "==> Smoke checks passed on interface ${iface}."
+            return
         fi
 
         sleep 1
     done
+
+    iface="$(detect_wifi_iface || true)"
+    if lsmod | grep -q '^wl\b' && [[ -n "$iface" ]]; then
+        echo "==> Smoke checks passed on interface ${iface}."
+        return
+    fi
 
     echo "Smoke check failed: wl or its network interface did not become ready."
     echo "Loaded modules matching wl:"

@@ -7,14 +7,26 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 detect_wifi_iface() {
+    local iface=""
+
     if command -v nmcli &>/dev/null; then
-        nmcli -t -f DEVICE,TYPE device status 2>/dev/null \
-            | awk -F: '$2 == "wifi" { print $1; exit }'
+        iface="$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null \
+            | awk -F: '$2 == "wifi" { print $1; exit }' || true)"
+        if [[ -n "$iface" ]]; then
+            printf '%s\n' "$iface"
+            return 0
+        fi
+    fi
+
+    iface="$(ip -o link show 2>/dev/null \
+        | awk -F': ' '$2 ~ /^(wl|wlan|wlp)/ { print $2; exit }' || true)"
+    if [[ -n "$iface" ]]; then
+        printf '%s\n' "$iface"
         return 0
     fi
 
-    ip -o link show 2>/dev/null \
-        | awk -F': ' '$2 ~ /^(wl|wlan)/ { print $2; exit }'
+    find /sys/class/net -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null \
+        | awk '/^(wl|wlan|wlp)/ { print; exit }'
 }
 
 echo "==> Checking for wireless-tools..."
@@ -49,6 +61,7 @@ mkdir -p /etc/udev/rules.d
 tee /etc/udev/rules.d/81-wifi-powersave.rules > /dev/null <<EOF
 ACTION=="add", SUBSYSTEM=="net", KERNEL=="wl*", RUN+="$IWCONFIG %k power off"
 ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan*", RUN+="$IWCONFIG %k power off"
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlp*", RUN+="$IWCONFIG %k power off"
 EOF
 
 echo "==> Installing Broadcom wl resume recovery hook..."

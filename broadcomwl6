@@ -1,0 +1,93 @@
+#!/bin/sh
+set -eu
+
+REPO_URL="${REPO_URL:-https://github.com/Trentyn/broadcom-wl-linux6.git}"
+REF="${REF:-}"
+INSTALL_DIR="${INSTALL_DIR:-/tmp/broadcom-wl-linux6}"
+
+log() {
+    printf '%s\n' "==> $*"
+}
+
+die() {
+    printf '%s\n' "Error: $*" >&2
+    exit 1
+}
+
+have() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+require_root_access() {
+    if [ "$(id -u)" -eq 0 ]; then
+        return
+    fi
+
+    if ! have sudo; then
+        die "this installer needs root privileges. Install sudo or run as root."
+    fi
+
+    log "Checking sudo access"
+    sudo -v
+}
+
+as_root() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    elif have sudo; then
+        sudo "$@"
+    else
+        die "this installer needs root privileges. Install sudo or run as root."
+    fi
+}
+
+install_bootstrap_dependencies() {
+    missing=""
+
+    have git || missing="$missing git"
+    have curl || missing="$missing curl"
+
+    if [ -z "$missing" ]; then
+        log "Bootstrap dependencies already installed."
+        return
+    fi
+
+    if ! have apt-get; then
+        die "apt-get was not found. This installer currently supports Debian/Ubuntu-based systems."
+    fi
+
+    log "Installing bootstrap dependencies:$missing"
+    as_root apt-get update
+    as_root apt-get install -y ca-certificates curl git
+}
+
+clone_or_update_repo() {
+    if [ -d "$INSTALL_DIR/.git" ]; then
+        log "Updating existing checkout in $INSTALL_DIR"
+        git -C "$INSTALL_DIR" fetch --depth 1 origin "${REF:-HEAD}"
+    else
+        if [ -e "$INSTALL_DIR" ]; then
+            die "$INSTALL_DIR already exists but is not a git checkout. Set INSTALL_DIR to another path."
+        fi
+
+        log "Cloning $REPO_URL into $INSTALL_DIR"
+        git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
+    fi
+
+    if [ -n "$REF" ]; then
+        log "Checking out $REF"
+        git -C "$INSTALL_DIR" checkout --detach "$REF"
+    fi
+}
+
+run_installer() {
+    [ -f "$INSTALL_DIR/install.sh" ] || die "install.sh was not found in $INSTALL_DIR"
+
+    log "Running Broadcom wl installer"
+    as_root bash "$INSTALL_DIR/install.sh"
+}
+
+require_root_access
+install_bootstrap_dependencies
+clone_or_update_repo
+run_installer
